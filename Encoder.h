@@ -37,16 +37,21 @@
 #include "WProgram.h"
 #include "pins_arduino.h"
 #endif
-
 #include "utility/direct_pin_read.h"
 
-#if defined(ENCODER_USE_INTERRUPTS) || !defined(ENCODER_DO_NOT_USE_INTERRUPTS)
-#define ENCODER_USE_INTERRUPTS
-#define ENCODER_ARGLIST_SIZE CORE_NUM_INTERRUPT
-#include "utility/interrupt_pins.h"
-#ifdef ENCODER_OPTIMIZE_INTERRUPTS
-#include "utility/interrupt_config.h"
+#if defined(XENTRINOBOT)
+  #define XENTRINOBOT
+#else
+    #define LINOROBOT
 #endif
+
+#if defined(ENCODER_USE_INTERRUPTS) || !defined(ENCODER_DO_NOT_USE_INTERRUPTS)
+ #define ENCODER_USE_INTERRUPTS
+ #define ENCODER_ARGLIST_SIZE CORE_NUM_INTERRUPT
+ #include "utility/interrupt_pins.h"
+#ifdef ENCODER_OPTIMIZE_INTERRUPTS
+  #include "utility/interrupt_config.h"
+ #endif
 #else
 #define ENCODER_ARGLIST_SIZE 0
 #endif
@@ -69,7 +74,13 @@ typedef struct {
 class Encoder
 {
 public:
+#ifdef XENTRINOBOT
 	Encoder(uint8_t pin1, uint8_t pin2) {
+#endif	
+#ifdef LINOROBOT
+	
+		Encoder(uint8_t pin1, uint8_t pin2, int counts_per_rev) {
+#endif	
 		#ifdef INPUT_PULLUP
 		pinMode(pin1, INPUT_PULLUP);
 		pinMode(pin2, INPUT_PULLUP);
@@ -79,6 +90,10 @@ public:
 		pinMode(pin2, INPUT);
 		digitalWrite(pin2, HIGH);
 		#endif
+		
+#ifdef LINOROBOT		
+		counts_per_rev_ = counts_per_rev;
+#endif		
 		encoder.pin1_register = PIN_TO_BASEREG(pin1);
 		encoder.pin1_bitmask = PIN_TO_BITMASK(pin1);
 		encoder.pin2_register = PIN_TO_BASEREG(pin2);
@@ -112,18 +127,6 @@ public:
 		interrupts();
 		return ret;
 	}
-	inline int32_t readAndReset() {
-		if (interrupts_in_use < 2) {
-			noInterrupts();
-			update(&encoder);
-		} else {
-			noInterrupts();
-		}
-		int32_t ret = encoder.position;
-		encoder.position = 0;
-		interrupts();
-		return ret;
-	}
 	inline void write(int32_t p) {
 		noInterrupts();
 		encoder.position = p;
@@ -134,17 +137,35 @@ public:
 		update(&encoder);
 		return encoder.position;
 	}
-	inline int32_t readAndReset() {
-		update(&encoder);
-		int32_t ret = encoder.position;
-		encoder.position = 0;
-		return ret;
-	}
 	inline void write(int32_t p) {
 		encoder.position = p;
 	}
 #endif
+#ifdef LINOROBOT
+	int getRPM(){
+		long encoder_ticks = read();
+		//this function calculates the motor's RPM based on encoder ticks and delta time
+		unsigned long current_time = millis();
+		unsigned long dt = current_time - prev_update_time_;
+
+		//convert the time from milliseconds to minutes
+		double dtm = (double)dt / 60000;
+		double delta_ticks = encoder_ticks - prev_encoder_ticks_;
+
+		//calculate wheel's speed (RPM)
+
+		prev_update_time_ = current_time;
+		prev_encoder_ticks_ = encoder_ticks;
+		
+		return (delta_ticks / counts_per_rev_) / dtm;
+	}
+#endif	
 private:
+#ifdef LINOROBOT
+	int counts_per_rev_;
+	unsigned long prev_update_time_;
+    long prev_encoder_ticks_;
+#endif		
 	Encoder_internal_state_t encoder;
 #ifdef ENCODER_USE_INTERRUPTS
 	uint8_t interrupts_in_use;
@@ -199,10 +220,7 @@ public:
 	}
 */
 
-public:
-	// update() is not meant to be called from outside Encoder,
-	// but it is public to allow static interrupt routines.
-	// DO NOT call update() directly from sketches.
+private:
 	static void update(Encoder_internal_state_t *arg) {
 #if defined(__AVR__)
 		// The compiler believes this is just 1 line of code, so
@@ -311,7 +329,6 @@ public:
 		}
 #endif
 	}
-private:
 /*
 #if defined(__AVR__)
 	// TODO: this must be a no inline function
@@ -958,11 +975,6 @@ ISR(INT6_vect) { Encoder::update(Encoder::interruptArgs[SCRAMBLE_INT_ORDER(6)]);
 ISR(INT7_vect) { Encoder::update(Encoder::interruptArgs[SCRAMBLE_INT_ORDER(7)]); }
 #endif
 #endif // AVR
-#if defined(attachInterrupt)
-// Don't intefere with other libraries or sketch use of attachInterrupt()
-// https://github.com/PaulStoffregen/Encoder/issues/8
-#undef attachInterrupt
-#endif
 #endif // ENCODER_OPTIMIZE_INTERRUPTS
 
 
